@@ -1,0 +1,6 @@
+sounddevice
+scipy
+librosa
+matplotlib
+openai
+python-dotenv
