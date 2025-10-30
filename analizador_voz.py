@@ -1,83 +1,88 @@
 import os
-import time
 import openai
 import sounddevice as sd
-from scipy.io.wavfile import write
-from dotenv import load_dotenv
+from scipy.io.wavfile import write, read
 import matplotlib.pyplot as plt
-from scipy.io import wavfile
+import subprocess
+from dotenv import load_dotenv
 
-# Cargar .env
+# ==== Config ====
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
+DURATION = 5
+FILENAME = "recording.wav"
+SPECTROGRAM_IMAGE = "spectrogram.png"
+SAMPLE_RATE = 44100
 
-# Configuración desde .env
-DURATION = int(os.getenv("AUDIO_DURATION", "10"))
-FILENAME = os.getenv("AUDIO_FILENAME", "recording.wav")
-SPECTROGRAM_IMAGE = os.getenv("SPECTROGRAM_IMAGE", "spectrogram.png")
-SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "44100"))
-
-def record_audio():
-    print("🎙️ Recording...")
-    recording = sd.rec(int(DURATION * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype='int16')
+# ==== Grabar audio ====
+def grabar():
+    print("🎙️ Grabando...")
+    audio = sd.rec(int(DURATION * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype='int16')
     sd.wait()
-    write(FILENAME, SAMPLE_RATE, recording)
-    print("✅ Recording saved.")
+    write(FILENAME, SAMPLE_RATE, audio)
+    print("✅ Grabado como recording.wav")
 
-def generate_spectrogram():
-    rate, data = wavfile.read(FILENAME)
+# ==== Generar espectrograma ====
+def espectrograma():
+    rate, data = read(FILENAME)
     if data.ndim > 1:
         data = data[:, 0]
     plt.figure(figsize=(10, 4))
     plt.specgram(data, Fs=rate, NFFT=1024, noverlap=512)
-    plt.xlabel('Time')
-    plt.ylabel('Frequency')
-    plt.title('Spectrogram')
-    plt.colorbar(label='Intensity (dB)')
+    plt.xlabel('Tiempo')
+    plt.ylabel('Frecuencia')
+    plt.title('Espectrograma')
+    plt.colorbar(label='Intensidad (dB)')
     plt.tight_layout()
     plt.savefig(SPECTROGRAM_IMAGE)
     plt.close()
-    print("📊 Spectrogram saved.")
+    print("📊 Espectrograma generado")
 
-def transcribe_audio():
+# ==== Transcripción ====
+def transcribir():
     try:
         with open(FILENAME, "rb") as f:
-            transcript = openai.audio.transcriptions.create(
-                model="whisper-1",
-                file=f,
-                response_format="text"
+            resultado = openai.audio.transcriptions.create(
+                model="whisper-1", file=f, response_format="text"
             )
-        return transcript.strip()
+        texto = resultado.strip()
+        print("📝 Transcripción:", texto)
+        return texto
     except Exception as e:
-        return f"[❌ Transcription error: {e}]"
+        print("❌ Error transcripción:", e)
+        return ""
 
-def analyze_emotion(text):
+# ==== Análisis emocional ====
+def analizar_emocion(texto):
     try:
-        response = openai.chat.completions.create(
+        respuesta = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an emotional analysis assistant. Given a transcript, analyze the emotional tone, "
-                        "possible mental state, or any unusual vocal patterns. Summarize findings in 3 lines max."
-                    )
-                },
-                {"role": "user", "content": text}
+                {"role": "system", "content": "Eres un analista emocional. Dado un texto transcrito, entrega en español una evaluación de tono emocional o mental en máximo 3 líneas."},
+                {"role": "user", "content": texto}
             ],
             max_tokens=300
         )
-        return response.choices[0].message.content.strip()
+        analisis = respuesta.choices[0].message.content.strip()
+        print("🧠 Análisis emocional:", analisis)
+        return analisis
     except Exception as e:
-        return f"[❌ GPT analysis error: {e}]"
+        print("❌ Error análisis:", e)
+        return "[Error al analizar emociones]"
 
+# ==== Mostrar notificación en macOS ====
+def mostrar_popup(mensaje):
+    mensaje = mensaje.replace('"', "'")  # evitar errores de comillas
+    subprocess.run(["osascript", "-e", f'display notification "{mensaje}" with title "🧠 Resultado emocional"'])
+
+# ==== Pipeline ====
 def main():
-    record_audio()
-    generate_spectrogram()
-    transcript = transcribe_audio()
-    print(f"\n📝 Transcript:\n{transcript}\n")
-    analysis = analyze_emotion(transcript)
-    print(f"🧠 Emotion Analysis:\n{analysis}\n")
+    grabar()
+    espectrograma()
+    texto = transcribir()
+    if texto:
+        analisis = analizar_emocion(texto)
+        mostrar_popup(analisis)
 
 if __name__ == "__main__":
     main()
